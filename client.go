@@ -24,6 +24,8 @@ type Client struct {
 	// as if the Request's Context ended.
 	Timeout time.Duration
 
+	DialTimeout time.Duration
+
 	// method mapping to the authenticator
 	Auth map[METHOD]Authenticator
 
@@ -75,14 +77,23 @@ func (c *UserPasswd) Authenticate(in io.Reader, out io.Writer) error {
 
 // handshake socks TCP connect,get a tcp connect and reply addr
 func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Address, err error) {
-	// get Socks server Address
-	proxyTCPAddr, err := net.ResolveTCPAddr("tcp", clt.ProxyAddr)
-	if err != nil {
-		return nil, nil, err
-	}
 
 	// dial to Socks server.
-	proxyTCPConn, err := net.DialTCP("tcp", nil, proxyTCPAddr)
+	var proxyTCPConn *net.TCPConn
+	if clt.DialTimeout != 0 {
+		var proxyTCPConn net.Conn
+		proxyTCPConn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
+		if err == nil {
+			proxyTCPConn = proxyTCPConn.(*net.TCPConn)
+		}
+	} else {
+		// get Socks server Address
+		proxyTCPAddr, err := net.ResolveTCPAddr("tcp", clt.ProxyAddr)
+		if err != nil {
+			return nil, nil, err
+		}
+		proxyTCPConn, err = net.DialTCP("tcp", nil, proxyTCPAddr)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -352,7 +363,13 @@ func (clt *Client) Bind(ver VER, destAddr string) (*Address, <-chan error, net.C
 		CMD:     BIND,
 		VER:     ver,
 	}
-	proxyConn, err := net.Dial("tcp", clt.ProxyAddr)
+
+	var proxyConn net.Conn
+	if clt.DialTimeout != 0 {
+		proxyConn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
+	} else {
+		proxyConn, err = net.Dial("tcp", clt.ProxyAddr)
+	}
 	if err != nil {
 		clt.logf()(err.Error())
 		return nil, nil, nil, err

@@ -23,6 +23,8 @@ type Server struct {
 	// If empty, localhost used.
 	BindIP string
 
+	DialTimeout time.Duration
+
 	// ReadTimeout is the maximum duration for reading from socks client.
 	// it's only effective to socks server handshake process.
 	//
@@ -433,7 +435,12 @@ func (srv *Server) establish(client net.Conn, req *Request) (dest net.Conn, err 
 		switch req.CMD {
 		case CONNECT:
 			// dial to dest host.
-			dest, err = net.Dial("tcp", req.Address.String())
+			if srv.DialTimeout != 0 {
+				dest, err = net.DialTimeout("tcp", req.Address.String(), srv.DialTimeout)
+			} else {
+				dest, err = net.Dial("tcp", req.Address.String())
+			}
+
 			if err != nil {
 				reply.REP = Rejected
 				err2 := srv.sendReply(client, reply)
@@ -525,7 +532,11 @@ func (srv *Server) establish(client net.Conn, req *Request) (dest net.Conn, err 
 		switch req.CMD {
 		case CONNECT:
 			// dial dest host.
-			dest, err = net.Dial("tcp", req.Address.String())
+			if srv.DialTimeout != 0 {
+				dest, err = net.DialTimeout("tcp", req.Address.String(), srv.DialTimeout)
+			} else {
+				dest, err = net.Dial("tcp", req.Address.String())
+			}
 			if err != nil {
 				reply.REP = HOST_UNREACHABLE
 				err2 := srv.sendReply(client, reply)
