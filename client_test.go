@@ -31,8 +31,8 @@ func runLocalServer(addr string, bindIP string) {
 func TestClient_UDPForward(t *testing.T) {
 	go runLocalServer("127.0.0.1:1080", "127.0.0.1")
 	c := Client{
-		ProxyAddr: "127.0.0.1:1080",
-		Timeout:   0,
+		ProxyAddr:        "127.0.0.1:1080",
+		HandshakeTimeout: 0,
 		Auth: map[METHOD]Authenticator{
 			USERNAME_PASSWORD:          &UserPasswd{Username: "admin", Password: "123456"},
 			NO_AUTHENTICATION_REQUIRED: NoAuth{},

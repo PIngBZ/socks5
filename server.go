@@ -29,13 +29,13 @@ type Server struct {
 	// it's only effective to socks server handshake process.
 	//
 	// If zero, there is no timeout.
-	ReadTimeout time.Duration
+	HandshakeReadTimeout time.Duration
 
 	// WriteTimeout is the maximum duration for writing to socks client.
 	// it's only effective to socks server handshake process.
 	//
 	// If zero, there is no timeout.
-	WriteTimeout time.Duration
+	HandshakeWriteTimeout time.Duration
 
 	// method mapping to the authenticator
 	// if nil server provide NO_AUTHENTICATION_REQUIRED method by default
@@ -232,11 +232,11 @@ func (srv *Server) Serve(l net.Listener) error {
 }
 
 func (srv *Server) serveconn(client net.Conn) {
-	if srv.ReadTimeout != 0 {
-		client.SetReadDeadline(time.Now().Add(srv.ReadTimeout))
+	if srv.HandshakeReadTimeout != 0 {
+		client.SetReadDeadline(time.Now().Add(srv.HandshakeReadTimeout))
 	}
-	if srv.WriteTimeout != 0 {
-		client.SetWriteDeadline(time.Now().Add(srv.WriteTimeout))
+	if srv.HandshakeWriteTimeout != 0 {
+		client.SetWriteDeadline(time.Now().Add(srv.HandshakeWriteTimeout))
 	}
 
 	// handshake
@@ -258,6 +258,7 @@ func (srv *Server) serveconn(client net.Conn) {
 	// establish over, reset deadline.
 	client.SetReadDeadline(time.Time{})
 	client.SetWriteDeadline(time.Time{})
+	remote.SetDeadline(time.Time{})
 
 	// transport data
 	switch request.CMD {

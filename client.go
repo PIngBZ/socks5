@@ -22,7 +22,7 @@ type Client struct {
 	//
 	// The Client cancels requests to the underlying Transport
 	// as if the Request's Context ended.
-	Timeout time.Duration
+	HandshakeTimeout time.Duration
 
 	DialTimeout time.Duration
 
@@ -97,8 +97,8 @@ func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Ad
 	if err != nil {
 		return nil, nil, err
 	}
-	if clt.Timeout != 0 {
-		err = proxyTCPConn.SetDeadline(time.Now().Add(clt.Timeout))
+	if clt.HandshakeTimeout != 0 {
+		err = proxyTCPConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -374,8 +374,8 @@ func (clt *Client) Bind(ver VER, destAddr string) (*Address, <-chan error, net.C
 		clt.logf()(err.Error())
 		return nil, nil, nil, err
 	}
-	if clt.Timeout != 0 {
-		err = proxyConn.SetDeadline(time.Now().Add(clt.Timeout))
+	if clt.HandshakeTimeout != 0 {
+		err = proxyConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
 		if err != nil {
 			clt.logf()(err.Error())
 			return nil, nil, nil, err
