@@ -81,10 +81,10 @@ func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Ad
 	// dial to Socks server.
 	var proxyTCPConn *net.TCPConn
 	if clt.DialTimeout != 0 {
-		var proxyTCPConn net.Conn
-		proxyTCPConn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
+		var conn net.Conn
+		conn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
 		if err == nil {
-			proxyTCPConn = proxyTCPConn.(*net.TCPConn)
+			proxyTCPConn = conn.(*net.TCPConn)
 		}
 	} else {
 		// get Socks server Address
