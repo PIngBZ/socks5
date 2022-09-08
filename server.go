@@ -265,7 +265,7 @@ func (srv *Server) serveconn(client net.Conn) {
 		srv.trackConn(remote, true)
 		defer srv.trackConn(remote, false)
 
-		errCh := srv.transport().TransportTCP(client.(*net.TCPConn), remote.(*net.TCPConn))
+		errCh := srv.transport().TransportStream(client, remote)
 		for err := range errCh {
 			if err != nil {
 				srv.logf()(err.Error())

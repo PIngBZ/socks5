@@ -37,7 +37,7 @@ This library is also compatible with Socks4 and Socks4a.
 # Installation
 
 ``` sh
-$ go get "github.com/haochen233/socks5"`
+$ go get "github.com/PIngBZ/socks5"`
 ```
 
 # Examples
@@ -51,7 +51,7 @@ package main
 
 import (
 	"log"
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 )
 
 func main() {
@@ -85,7 +85,7 @@ import (
 	"crypto/md5"
 	"log"
 
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 )
 
 func main() {
@@ -123,7 +123,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 )
 
 // simulate to impl socks5.Transporter interface.
@@ -131,7 +131,7 @@ import (
 type cryptTransport struct {
 }
 
-func (c *cryptTransport) TransportTCP(client *net.TCPConn, remote *net.TCPConn) <-chan error {
+func (c *cryptTransport) TransportStream(client *net.Conn, remote *net.Conn) <-chan error {
 	//encrypt data and send to remote
 	//decrypt data and send to client
 	return nil
@@ -167,7 +167,7 @@ package main
 import (
 	"log"
 
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 )
 
 func main() {
@@ -205,7 +205,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 )
 
 func main() {
@@ -257,7 +257,7 @@ package main
 
 import (
 	"encoding/binary"
-	"github.com/haochen233/socks5"
+	"github.com/PIngBZ/socks5"
 	"log"
 )
 

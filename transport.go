@@ -2,14 +2,13 @@ package socks5
 
 import (
 	"io"
-	"net"
 	"strings"
 	"sync"
 )
 
 // Transporter transmit data between client and dest server.
 type Transporter interface {
-	TransportTCP(client *net.TCPConn, remote *net.TCPConn) <-chan error
+	TransportStream(client io.ReadWriteCloser, remote io.ReadWriteCloser) <-chan error
 	TransportUDP(server *UDPConn, request *Request) error
 }
 
@@ -24,12 +23,12 @@ var transportPool = &sync.Pool{
 	},
 }
 
-// TransportTCP use io.CopyBuffer transmit data.
-func (t *transport) TransportTCP(client *net.TCPConn, remote *net.TCPConn) <-chan error {
+// TransportStream use io.CopyBuffer transmit data.
+func (t *transport) TransportStream(client io.ReadWriteCloser, remote io.ReadWriteCloser) <-chan error {
 	errCh := make(chan error)
 	var wg = sync.WaitGroup{}
 
-	f := func(dst *net.TCPConn, src *net.TCPConn) {
+	f := func(dst io.ReadWriteCloser, src io.ReadWriteCloser) {
 		defer wg.Done()
 		buf := transportPool.Get().([]byte)
 		defer transportPool.Put(buf)
