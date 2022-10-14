@@ -48,7 +48,7 @@ type Server struct {
 	// if nil, DefaultTransport is used.
 	Transporter
 
-	CallbackAfterHandshake func(server *Server) bool
+	CallbackAfterHandshake func(server *Server, request *Request) bool
 
 	// ErrorLog specifics an options logger for errors accepting
 	// connections, unexpected socks protocol handshake process,
@@ -250,7 +250,7 @@ func (srv *Server) serveconn(client net.Conn) {
 	}
 
 	if srv.CallbackAfterHandshake != nil {
-		if !srv.CallbackAfterHandshake(srv) {
+		if !srv.CallbackAfterHandshake(srv, request) {
 			client.Close()
 			return
 		}
