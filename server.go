@@ -48,6 +48,8 @@ type Server struct {
 	// if nil, DefaultTransport is used.
 	Transporter
 
+	CallbackAfterHandshake func(server *Server) bool
+
 	// ErrorLog specifics an options logger for errors accepting
 	// connections, unexpected socks protocol handshake process,
 	// and server to remote connection errors.
@@ -245,6 +247,13 @@ func (srv *Server) serveconn(client net.Conn) {
 		srv.logf()(err.Error())
 		client.Close()
 		return
+	}
+
+	if srv.CallbackAfterHandshake != nil {
+		if !srv.CallbackAfterHandshake(srv) {
+			client.Close()
+			return
+		}
 	}
 
 	// establish connection to remote
