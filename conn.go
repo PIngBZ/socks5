@@ -13,7 +13,7 @@ import (
 type UDPConn struct {
 	mu        sync.Mutex
 	udp       *net.UDPConn
-	tcp       *net.TCPConn
+	tcp       net.Conn
 	closeChan chan struct{}
 }
 
@@ -25,7 +25,7 @@ type UDPConn struct {
 // function is udp relay connection still running.
 //
 // If one of them shuts off, it will close them all.
-func NewUDPConn(udp *net.UDPConn, tcp *net.TCPConn) *UDPConn {
+func NewUDPConn(udp *net.UDPConn, tcp net.Conn) *UDPConn {
 	if udp == nil || tcp == nil {
 		return nil
 	}

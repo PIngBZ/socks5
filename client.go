@@ -36,7 +36,7 @@ type Client struct {
 	// DisableSocks4A client disable socks4a client, default enable socks4a extension.
 	DisableSocks4A bool
 
-	Dialer func(client *Client, request *Request) (*net.TCPConn, error)
+	Dialer func(client *Client, request *Request) (net.Conn, error)
 }
 
 // UserPasswd provide socks5 Client Username/Password Authenticator.
@@ -78,25 +78,25 @@ func (c *UserPasswd) Authenticate(in io.Reader, out io.Writer) error {
 }
 
 // handshake socks TCP connect,get a tcp connect and reply addr
-func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Address, err error) {
+func (clt *Client) handshake(request *Request) (conn net.Conn, replyAddr *Address, err error) {
 
 	// dial to Socks server.
-	var proxyTCPConn *net.TCPConn
+	var proxyStreamConn net.Conn
 
 	if clt.Dialer != nil {
-		proxyTCPConn, err = clt.Dialer(clt, request)
+		proxyStreamConn, err = clt.Dialer(clt, request)
 	} else if clt.DialTimeout != 0 {
 		var conn net.Conn
 		conn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
 		if err == nil {
-			proxyTCPConn = conn.(*net.TCPConn)
+			proxyStreamConn = conn
 		}
 	} else {
 		// get Socks server Address
 		var proxyTCPAddr *net.TCPAddr
 		proxyTCPAddr, err = net.ResolveTCPAddr("tcp", clt.ProxyAddr)
 		if err == nil {
-			proxyTCPConn, err = net.DialTCP("tcp", nil, proxyTCPAddr)
+			proxyStreamConn, err = net.DialTCP("tcp", nil, proxyTCPAddr)
 		}
 	}
 
@@ -105,35 +105,35 @@ func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Ad
 	}
 
 	if clt.HandshakeTimeout != 0 {
-		err = proxyTCPConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
+		err = proxyStreamConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
 		if err != nil {
 			return nil, nil, err
 		}
-		defer proxyTCPConn.SetDeadline(time.Time{})
+		defer proxyStreamConn.SetDeadline(time.Time{})
 	}
 
 	// process handshake by version
 	if request.VER == Version5 {
-		replyAddr, err = clt.handShake5(request, proxyTCPConn)
+		replyAddr, err = clt.handShake5(request, proxyStreamConn)
 	} else if request.VER == Version4 {
 		if request.ATYPE == DOMAINNAME && clt.DisableSocks4A {
 			return nil, nil, errors.New("socks4a client had been disabled")
 		}
-		replyAddr, err = clt.handshake4(request, proxyTCPConn)
+		replyAddr, err = clt.handshake4(request, proxyStreamConn)
 	}
 
 	// handshake wrong.
 	if err != nil {
-		proxyTCPConn.Close()
+		proxyStreamConn.Close()
 		return nil, nil, err
 	}
 
-	return proxyTCPConn, replyAddr, nil
+	return proxyStreamConn, replyAddr, nil
 }
 
 // handShake5 Socks 5 version of the connection handshake
-func (clt *Client) handShake5(request *Request, proxyTCPConn net.Conn) (*Address, error) {
-	err := clt.authentication(proxyTCPConn)
+func (clt *Client) handShake5(request *Request, proxyStreamConn net.Conn) (*Address, error) {
+	err := clt.authentication(proxyStreamConn)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +147,7 @@ func (clt *Client) handShake5(request *Request, proxyTCPConn net.Conn) (*Address
 	//    +----+-----+-------+------+----------+----------+
 	//    | 1  |  1  | X'00' |  1   | Variable |    2     |
 	//    +----+-----+-------+------+----------+----------+
-	if _, err := proxyTCPConn.Write(append([]byte{request.VER, request.CMD, request.RSV}, destAddrByte...)); err != nil {
+	if _, err := proxyStreamConn.Write(append([]byte{request.VER, request.CMD, request.RSV}, destAddrByte...)); err != nil {
 		return nil, err
 	}
 	// reply formed as follows:
@@ -157,7 +157,7 @@ func (clt *Client) handShake5(request *Request, proxyTCPConn net.Conn) (*Address
 	//    | 1  |  1  | X'00' |  1   | Variable |    2     |
 	//    +----+-----+-------+------+----------+----------+
 	reply := &Reply{}
-	tmp, err := ReadNBytes(proxyTCPConn, 3)
+	tmp, err := ReadNBytes(proxyStreamConn, 3)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reply version and command and reserved, %v", err)
 	}
@@ -166,7 +166,7 @@ func (clt *Client) handShake5(request *Request, proxyTCPConn net.Conn) (*Address
 		return nil, fmt.Errorf("unrecognized SOCKS version[%d]", reply.VER)
 	}
 	// read address
-	serverBoundAddr, _, err := readAddress(proxyTCPConn, request.VER)
+	serverBoundAddr, _, err := readAddress(proxyStreamConn, request.VER)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get reply address, %v", err)
 	}
@@ -260,7 +260,7 @@ func (clt *Client) handshake4(request *Request, proxyConn net.Conn) (*Address, e
 }
 
 // Connect send CONNECT Request. Returned a connected proxy connection.
-func (clt *Client) Connect(ver VER, dest string) (*net.TCPConn, error) {
+func (clt *Client) Connect(ver VER, dest string) (net.Conn, error) {
 	if ver != Version4 && ver != Version5 {
 		return nil, &VersionError{ver}
 	}
@@ -294,6 +294,9 @@ func (clt *Client) UDPForward(laddr string) (*UDPConn, error) {
 
 	// split laddr to host/port
 	host, portStr, err := net.SplitHostPort(laddr)
+	if err != nil {
+		return nil, err
+	}
 	p, err := strconv.Atoi(portStr)
 	if err != nil {
 		return nil, err
@@ -323,7 +326,7 @@ func (clt *Client) UDPForward(laddr string) (*UDPConn, error) {
 	}
 
 	// Handshake base on TCP connection
-	proxyTCPConn, UDPRelayAddr, err := clt.handshake(req)
+	proxyStreamConn, UDPRelayAddr, err := clt.handshake(req)
 	if err != nil {
 		return nil, err
 	}
@@ -343,15 +346,15 @@ func (clt *Client) UDPForward(laddr string) (*UDPConn, error) {
 	// Dial UDP relay Server
 	err = IsFreePort("udp", port)
 	if err != nil {
-		proxyTCPConn.Close()
+		proxyStreamConn.Close()
 		return nil, fmt.Errorf("port %d is occupied", port)
 	}
 	proxyUDPConn, err := net.DialUDP("udp", localUDPAddr, serverListenUDPAddr)
 	if err != nil {
-		proxyTCPConn.Close()
+		proxyStreamConn.Close()
 		return nil, err
 	}
-	return NewUDPConn(proxyUDPConn, proxyTCPConn), nil
+	return NewUDPConn(proxyUDPConn, proxyStreamConn), nil
 }
 
 // Bind send BIND Request. return 4 params:
