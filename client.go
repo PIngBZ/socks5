@@ -375,7 +375,9 @@ func (clt *Client) Bind(ver VER, destAddr string) (*Address, <-chan error, net.C
 	}
 
 	var proxyConn net.Conn
-	if clt.DialTimeout != 0 {
+	if clt.Dialer != nil {
+		proxyConn, err = clt.Dialer(clt, request)
+	} else if clt.DialTimeout != 0 {
 		proxyConn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
 	} else {
 		proxyConn, err = net.Dial("tcp", clt.ProxyAddr)
