@@ -35,6 +35,8 @@ type Client struct {
 
 	// DisableSocks4A client disable socks4a client, default enable socks4a extension.
 	DisableSocks4A bool
+
+	Dialer func(client *Client, request *Request) (*net.TCPConn, error)
 }
 
 // UserPasswd provide socks5 Client Username/Password Authenticator.
@@ -80,7 +82,10 @@ func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Ad
 
 	// dial to Socks server.
 	var proxyTCPConn *net.TCPConn
-	if clt.DialTimeout != 0 {
+
+	if clt.Dialer != nil {
+		proxyTCPConn, err = clt.Dialer(clt, request)
+	} else if clt.DialTimeout != 0 {
 		var conn net.Conn
 		conn, err = net.DialTimeout("tcp", clt.ProxyAddr, clt.DialTimeout)
 		if err == nil {
@@ -88,15 +93,17 @@ func (clt *Client) handshake(request *Request) (conn *net.TCPConn, replyAddr *Ad
 		}
 	} else {
 		// get Socks server Address
-		proxyTCPAddr, err := net.ResolveTCPAddr("tcp", clt.ProxyAddr)
-		if err != nil {
-			return nil, nil, err
+		var proxyTCPAddr *net.TCPAddr
+		proxyTCPAddr, err = net.ResolveTCPAddr("tcp", clt.ProxyAddr)
+		if err == nil {
+			proxyTCPConn, err = net.DialTCP("tcp", nil, proxyTCPAddr)
 		}
-		proxyTCPConn, err = net.DialTCP("tcp", nil, proxyTCPAddr)
 	}
+
 	if err != nil {
 		return nil, nil, err
 	}
+
 	if clt.HandshakeTimeout != 0 {
 		err = proxyTCPConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
 		if err != nil {
