@@ -284,7 +284,7 @@ func (srv *Server) serveconn(client net.Conn) {
 			}
 		}
 	case UDP_ASSOCIATE:
-		relay := NewUDPConn(remote.(*net.UDPConn), client.(*net.TCPConn))
+		relay := NewUDPConn(remote.(*net.UDPConn), client)
 		srv.trackConn(relay, true)
 		defer srv.trackConn(relay, false)
 
