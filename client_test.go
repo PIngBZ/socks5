@@ -61,12 +61,12 @@ func TestClient_Connect(t *testing.T) {
 		},
 	}
 
-	// socks4 connect
 	dest := "www.baidu.com:80"
-	conn, err := c.Connect(Version4, dest)
+
+	// socks5 connect
+	conn5, err := c.Connect(Version5, dest)
 	if err != nil {
 		t.Fatal(err)
-		return
 	}
 
 	// send http Get request via socks proxy.
@@ -74,17 +74,6 @@ func TestClient_Connect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 		return
-	}
-
-	err = req.WriteProxy(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// socks5 connect
-	conn5, err := c.Connect(Version5, dest)
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	err = req.WriteProxy(conn5)

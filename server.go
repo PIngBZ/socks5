@@ -50,14 +50,13 @@ type Server struct {
 
 	CallbackAfterHandshake func(server *Server, request *Request) bool
 
+	Dialer func(server *Server, request *Request, address string) (net.Conn, error)
+
 	// ErrorLog specifics an options logger for errors accepting
 	// connections, unexpected socks protocol handshake process,
 	// and server to remote connection errors.
 	// If nil, logging is done via log package's standard logger.
 	ErrorLog *log.Logger
-
-	// DisableSocks4, disable socks4 server, default enable socks4 compatible.
-	DisableSocks4 bool
 
 	// 1 indicate server is shutting down.
 	// 0 indicate server is running.
@@ -314,22 +313,17 @@ func (srv *Server) handShake(client net.Conn) (*Request, error) {
 
 	//socks4 protocol process
 	if version == Version4 {
-		if srv.DisableSocks4 {
-			//send server reject reply
-			address := &Address{net.IPv4zero, IPV4_ADDRESS, 0}
-			addr, err := address.Bytes(Version4)
-			if err != nil {
-				return nil, &OpError{Version4, "", client.RemoteAddr(), "\"authentication\"", err}
-			}
-			_, err = client.Write(append([]byte{0, Rejected}, addr...))
-			if err != nil {
-				return nil, &OpError{Version4, "write", client.RemoteAddr(), "\"authentication\"", err}
-			}
-			return nil, errDisableSocks4
+		//send server reject reply
+		address := &Address{net.IPv4zero, IPV4_ADDRESS, 0}
+		addr, err := address.Bytes(Version4)
+		if err != nil {
+			return nil, &OpError{Version4, "", client.RemoteAddr(), "\"authentication\"", err}
 		}
-
-		//handle socks4 request
-		return srv.readSocks4Request(client)
+		_, err = client.Write(append([]byte{0, Rejected}, addr...))
+		if err != nil {
+			return nil, &OpError{Version4, "write", client.RemoteAddr(), "\"authentication\"", err}
+		}
+		return nil, errDisableSocks4
 	}
 
 	//socks5 protocol authentication
@@ -357,34 +351,6 @@ func (srv *Server) authentication(client net.Conn) error {
 	}
 
 	return srv.MethodSelect(methods, client)
-}
-
-// readSocks4Request receive socks4 protocol client request.
-func (srv *Server) readSocks4Request(client net.Conn) (*Request, error) {
-	reply := &Reply{
-		VER:     Version4,
-		Address: &Address{net.IPv4zero, IPV4_ADDRESS, 0},
-	}
-	req := &Request{
-		VER: Version4,
-	}
-	// CMD
-	cmd, err := ReadNBytes(client, 1)
-	if err != nil {
-		return nil, &OpError{req.VER, "read", client.RemoteAddr(), "\"process request command\"", err}
-	}
-	req.CMD = cmd[0]
-	// DST.PORT, DST.IP
-	addr, rep, err := readAddress(client, req.VER)
-	if err != nil {
-		reply.REP = rep
-		err := srv.sendReply(client, reply)
-		if err != nil {
-			return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request address type\"", err}
-		}
-	}
-	req.Address = addr
-	return req, nil
 }
 
 // readSocks5Request read socks5 protocol client request.
@@ -439,110 +405,13 @@ func (srv *Server) establish(client net.Conn, req *Request) (dest net.Conn, err 
 		VER:     req.VER,
 		Address: &Address{net.IPv4zero, IPV4_ADDRESS, 0},
 	}
-
-	// version4
-	if req.VER == Version4 {
-		switch req.CMD {
-		case CONNECT:
-			// dial to dest host.
-			if srv.DialTimeout != 0 {
-				dest, err = net.DialTimeout("tcp", req.Address.String(), srv.DialTimeout)
-			} else {
-				dest, err = net.Dial("tcp", req.Address.String())
-			}
-
-			if err != nil {
-				reply.REP = Rejected
-				err2 := srv.sendReply(client, reply)
-				if err != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err2}
-				}
-				return nil, err
-			}
-
-			// parse remote host address.
-			remoteAddr, err := ParseAddress(dest.RemoteAddr().String())
-			if err != nil {
-				reply.REP = Rejected
-				err2 := srv.sendReply(client, reply)
-				if err2 != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err2}
-				}
-				return nil, err
-			}
-			reply.Address = remoteAddr
-
-			// success
-			reply.REP = Granted
-			err = srv.sendReply(client, reply)
-			if err != nil {
-				return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err}
-			}
-		case BIND:
-			bindAddr, err := net.ResolveTCPAddr("tcp", net.JoinHostPort(srv.BindIP, "0"))
-			if err != nil {
-				return nil, err
-			}
-
-			// start listening on random port.
-			bindServer, err := net.ListenTCP("tcp", bindAddr)
-			if err != nil {
-				reply.REP = Rejected
-				err2 := srv.sendReply(client, reply)
-				if err2 != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err2}
-				}
-				return nil, err
-			}
-			defer bindServer.Close()
-			reply.REP = Granted
-			reply.Address, err = ParseAddress(bindServer.Addr().String())
-			if err != nil {
-				return nil, err
-			}
-
-			// send first reply to client.
-			err = srv.sendReply(client, reply)
-			if err != nil {
-				return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err}
-			}
-			// waiting target host connect.
-			dest, err = bindServer.Accept()
-			if err != nil {
-				reply.REP = Rejected
-				err2 := srv.sendReply(client, reply)
-				if err2 != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err2}
-				}
-				return nil, err
-			}
-
-			// send second reply to client.
-			if req.Address.String() == dest.RemoteAddr().String() {
-				err2 := srv.sendReply(client, reply)
-				if err2 != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err2}
-				}
-			} else {
-				reply.REP = Rejected
-				err = srv.sendReply(client, reply)
-				if err != nil {
-					return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err}
-				}
-			}
-		default:
-			reply.REP = Rejected
-			err = srv.sendReply(client, reply)
-			if err != nil {
-				return nil, &OpError{req.VER, "write", client.RemoteAddr(), "\"process request\"", err}
-			}
-			return nil, &OpError{req.VER, "", client.RemoteAddr(), "\"process request\"", &CMDError{req.CMD}}
-		}
-	} else if req.VER == Version5 { // version5
+	if req.VER == Version5 { // version5
 		switch req.CMD {
 		case CONNECT:
 			// dial dest host.
-			if srv.DialTimeout != 0 {
+			if srv.Dialer != nil {
+				dest, err = srv.Dialer(srv, req, req.Addr.String())
+			} else if srv.DialTimeout != 0 {
 				dest, err = net.DialTimeout("tcp", req.Address.String(), srv.DialTimeout)
 			} else {
 				dest, err = net.Dial("tcp", req.Address.String())
@@ -680,18 +549,7 @@ func (srv *Server) sendReply(out io.Writer, r *Reply) error {
 	var reply []byte
 	var err error
 
-	if r.VER == Version4 {
-		if r.Address.ATYPE != IPV4_ADDRESS {
-			return errErrorATPE
-		}
-		addr, err := r.Address.Bytes(r.VER)
-		if err != nil {
-			return err
-		}
-		reply = append(reply, 0, r.REP)
-		// Remove NULL at the end. Please see Address.Bytes() Method.
-		reply = append(reply, addr[:len(addr)-1]...)
-	} else if r.VER == Version5 {
+	if r.VER == Version5 {
 		addr, err := r.Address.Bytes(r.VER)
 		if err != nil {
 			return err
@@ -753,14 +611,14 @@ func (srv *Server) logf() func(format string, args ...interface{}) {
 	return srv.ErrorLog.Printf
 }
 
-// checkVersion check version is 4 or 5.
+// checkVersion check version is 5.
 func checkVersion(in io.Reader) (VER, error) {
 	version, err := ReadNBytes(in, 1)
 	if err != nil {
 		return 0, err
 	}
 
-	if (version[0] != Version5) && (version[0] != Version4) {
+	if version[0] != Version5 {
 		return 0, &VersionError{version[0]}
 	}
 	return version[0], nil

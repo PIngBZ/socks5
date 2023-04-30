@@ -33,9 +33,6 @@ type Client struct {
 	// If nil, logging is done via log package's standard logger.
 	ErrorLog *log.Logger
 
-	// DisableSocks4A client disable socks4a client, default enable socks4a extension.
-	DisableSocks4A bool
-
 	Dialer func(client *Client, request *Request) (net.Conn, error)
 }
 
@@ -107,6 +104,7 @@ func (clt *Client) handshake(request *Request) (conn net.Conn, replyAddr *Addres
 	if clt.HandshakeTimeout != 0 {
 		err = proxyStreamConn.SetDeadline(time.Now().Add(clt.HandshakeTimeout))
 		if err != nil {
+			proxyStreamConn.Close()
 			return nil, nil, err
 		}
 		defer proxyStreamConn.SetDeadline(time.Time{})
@@ -115,11 +113,9 @@ func (clt *Client) handshake(request *Request) (conn net.Conn, replyAddr *Addres
 	// process handshake by version
 	if request.VER == Version5 {
 		replyAddr, err = clt.handShake5(request, proxyStreamConn)
-	} else if request.VER == Version4 {
-		if request.ATYPE == DOMAINNAME && clt.DisableSocks4A {
-			return nil, nil, errors.New("socks4a client had been disabled")
-		}
-		replyAddr, err = clt.handshake4(request, proxyStreamConn)
+	} else {
+		proxyStreamConn.Close()
+		return nil, nil, errors.New("socks4(a) client had been disabled")
 	}
 
 	// handshake wrong.
@@ -221,47 +217,9 @@ func (clt *Client) authentication(proxyConn net.Conn) error {
 	return nil
 }
 
-// handShake4 Socks 4 version of the connection handshake
-func (clt *Client) handshake4(request *Request, proxyConn net.Conn) (*Address, error) {
-	destAddrByte, err := request.Address.Bytes(Version4)
-	if err != nil {
-		return nil, err
-	}
-	// The client connects to the SOCKS server and sends a CONNECT request when it wants to establish a connection to an application server.
-	// The client includes in the request packet the IP address and the port number of the destination host, and userid, in the following format.
-	//    +----+----+----+----+----+----+----+----+----+----+....+----+
-	//    | VN | CD | DSTPORT |      DSTIP        | USERID       |NULL|
-	//    +----+----+----+----+----+----+----+----+----+----+....+----+
-	//      1    1      2              4           variable       1
-	if _, err := proxyConn.Write(append([]byte{request.VER, request.CMD}, destAddrByte...)); err != nil {
-		return nil, err
-	}
-	// A reply packet is sent to the client when this connection is established,or when the request is rejected or the operation fails.
-	//    +----+----+----+----+----+----+----+----+
-	//    | VN | CD | DSTPORT |      DSTIP        |
-	//    +----+----+----+----+----+----+----+----+
-	//       1    1      2              4
-	tmp, err := ReadNBytes(proxyConn, 2)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get reply version and command, %v", err)
-	}
-	if tmp[0] != 0 {
-		return nil, fmt.Errorf("response VN wrong[%d]", tmp[0])
-	}
-	if tmp[1] != Granted {
-		return nil, errors.New("server refuse client request")
-	}
-	// Read address
-	replyAddr, _, err := readSocks4ReplyAddress(proxyConn, request.VER)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get reply address, %v", err)
-	}
-	return replyAddr, nil
-}
-
 // Connect send CONNECT Request. Returned a connected proxy connection.
 func (clt *Client) Connect(ver VER, dest string) (net.Conn, error) {
-	if ver != Version4 && ver != Version5 {
+	if ver != Version5 {
 		return nil, &VersionError{ver}
 	}
 
@@ -395,14 +353,6 @@ func (clt *Client) Bind(ver VER, destAddr string) (*Address, <-chan error, net.C
 		defer proxyConn.SetDeadline(time.Time{})
 	}
 	switch request.VER {
-	case Version4:
-		serverBindAddr, secondReply, err := clt.bind4(request, proxyConn)
-		if err != nil {
-			proxyConn.Close()
-			clt.logf()(err.Error())
-			return nil, nil, nil, err
-		}
-		return serverBindAddr, secondReply, proxyConn, nil
 	case Version5:
 		serverBindAddr, secondReply, err := clt.bind5(request, proxyConn)
 		if err != nil {
@@ -487,73 +437,6 @@ func (clt *Client) bind5(request *Request, proxyBindConn net.Conn) (*Address, <-
 		}
 		reply2.Address = serverBoundAddr
 		if reply2.REP != SUCCESSED {
-			errorChan <- errors.New("server refuse client request,when second time reply")
-			proxyBindConn.Close()
-		}
-		errorChan <- nil
-	}()
-	return serverBoundAddr, errorChan, nil
-}
-
-// bind4 socks4 bind
-func (clt *Client) bind4(request *Request, proxyBindConn net.Conn) (*Address, <-chan error, error) {
-	destAddrByte, err := request.Address.Bytes(Version4)
-	if err != nil {
-		return nil, nil, err
-	}
-	// The client connects to the SOCKS server and sends a CONNECT request when it wants to establish a connection to an application server.
-	// The client includes in the request packet the IP address and the port number of the destination host, and userid, in the following format.
-	//    +----+----+----+----+----+----+----+----+----+----+....+----+
-	//    | VN | CD | DSTPORT |      DSTIP        | USERID       |NULL|
-	//    +----+----+----+----+----+----+----+----+----+----+....+----+
-	//      1    1      2              4           variable       1
-	if _, err := proxyBindConn.Write(append([]byte{request.VER, request.CMD}, destAddrByte...)); err != nil {
-		return nil, nil, err
-	}
-	// A reply packet is sent to the client when this connection is established,or when the request is rejected or the operation fails.
-	//    +----+----+----+----+----+----+----+----+
-	//    | VN | CD | DSTPORT |      DSTIP        |
-	//    +----+----+----+----+----+----+----+----+
-	//       1    1      2              4
-	tmp, err := ReadNBytes(proxyBindConn, 2)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get reply version and command, %v", err)
-	}
-	if tmp[0] != 0 {
-		return nil, nil, fmt.Errorf("response VN wrong[%d]", tmp[0])
-	}
-	// Read address
-	serverBoundAddr, _, err := readSocks4ReplyAddress(proxyBindConn, request.VER)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get reply address, %v", err)
-	}
-	if tmp[1] != Granted {
-		return nil, nil, errors.New("server refuse client request,when first time reply")
-	}
-	errorChan := make(chan error)
-	go func() {
-		// A reply packet is sent to the client,or when the request is rejected or the operation fails.
-		//    +----+----+----+----+----+----+----+----+
-		//    | VN | CD | DSTPORT |      DSTIP        |
-		//    +----+----+----+----+----+----+----+----+
-		//       1    1      2              4
-		tmp, err := ReadNBytes(proxyBindConn, 2)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to get reply version and command, %v", err)
-			proxyBindConn.Close()
-		}
-		if tmp[0] != 0 {
-			errorChan <- fmt.Errorf("response VN wrong[%d]", tmp[0])
-			proxyBindConn.Close()
-		}
-		// read address
-		_, _, err = readSocks4ReplyAddress(proxyBindConn, request.VER)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to get reply address, %v", err)
-			proxyBindConn.Close()
-		}
-
-		if tmp[1] != Granted {
 			errorChan <- errors.New("server refuse client request,when second time reply")
 			proxyBindConn.Close()
 		}
