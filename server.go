@@ -410,7 +410,7 @@ func (srv *Server) establish(client net.Conn, req *Request) (dest net.Conn, err 
 		case CONNECT:
 			// dial dest host.
 			if srv.Dialer != nil {
-				dest, err = srv.Dialer(srv, req, req.Addr.String())
+				dest, err = srv.Dialer(srv, req, req.Address.String())
 			} else if srv.DialTimeout != 0 {
 				dest, err = net.DialTimeout("tcp", req.Address.String(), srv.DialTimeout)
 			} else {
